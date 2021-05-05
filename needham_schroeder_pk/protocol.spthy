@@ -1,0 +1,174 @@
+/* Needham Schroeder Public Key */
+
+/* 
+    The protocol is semplified as follows: 
+    A -> B: aenc((Na,pk(skA)), pk(skB))
+    B -> A: aenc((Na,Nb), pk(skA))
+    A -> B: aenc(Nb, pk(skB))
+*/
+
+theory NSPK3
+begin
+
+builtins: asymmetric-encryption
+
+rule Register_pk:
+    [ Fr(~ltkX) ]        // Generate new private key
+    -->
+    [ !Ltk($X, ~ltkX)    // Register the private key of the agent X
+    , !Pk($X, pk(~ltkX)) // Register the public key of the agent X
+    , Out(pk(~ltkX))     // Send the public key out to make sure it is available to attacker
+    ]
+
+
+rule Reveal_ltk:
+    [ !Ltk(X, ltkX) ]    // Leaked key
+    --[ RevLtk(X) ]->    // Action fact saying that X's key have been leaked
+    [ Out(ltkX) ]        // Send it out
+
+
+/* Protocol definition */
+rule A_1:
+    let 
+        m1 = aenc(<~Na, $A>, pkB) // The message of step 1
+    in
+    [ Fr(~Na)                     // Generate a fresh nonce
+    , !Pk($B, pkB)                // Get Bob's public key
+    ]
+    --[ Out_A_1(m1) ]->           // Action fact stating we sent out the message m1
+    [ Out(m1)                     // Send out m1
+    , St_A_1($A, $B, ~Na)         // Save the state of Alice
+    ]
+
+rule B_1:
+    let 
+        m1 = aenc(<Na, A>, pk(ltkB))    // Message we receive
+        m2 = aenc(<Na, ~Nb>, pkA)       // Message we send
+    in
+    [ !Ltk($B, ltkB)                    // Get my private key
+    , In(m1)                            // Receive message m1
+    , !Pk(A, pkA)                       // Get other party public key (party may be ANYONE!)
+    , Fr(~Nb)                           // Generate fresh nonce
+    ]
+  --[ In_B_1_Na(Na, m1)                 // Action fact stating we received m1 with nonce Na
+    , Out_B_1(m2)                       // Action fact stating we sent m2
+    , Running(A, $B, <'init', Na, ~Nb>) // Action fact stating that we are running the protocol with A, with the given Na and Nb
+    ]->
+    [ Out(m2)                           // Send out the second message
+    , St_B_1($B, A, Na, ~Nb)            // Save state
+    ]
+
+rule A_2:
+    let 
+        m2 = aenc(<Na, Nb>, pk(ltkA))   // Message we receive
+        m3 = aenc(Nb, pkB)              // Message we send (3rd message)
+    in
+    [ St_A_1(A, B, Na)                  // Recover state from last rule
+    , !Ltk(A, ltkA)                     // Get private key of Alice
+    , In(m2)                            // Get input message
+    , !Pk(B, pkB)                       // Get public key of Bob
+    ]
+  --[ In_A_2_Nb(Nb, m2)                 // Action fact stating we've received m2 with nonce Nb
+    , Commit(A, B, <'init', Na, Nb>)    // Action fact used to log identities explicitely to specify that they
+    , Running(B, A, <'resp', Na, Nb>)   // must not be compromised in the property!
+    ]->
+    [ Out(m3)                           // Send out m3
+    , Secret(A, B, Na)                  // Create fact that Na is secret from Alice's point of view
+    , Secret(A, B, Nb)                  // Create fact that Nb is secret from Alice's point of view 
+    ]
+
+rule B_2:
+    let 
+        m3 = aenc(Nb, pk(ltkB))
+    in
+    [ St_B_1(B, A, Na, Nb)              // Recover previous state
+    , !Ltk(B, ltkB)                     // Recover Bob's private key
+    , In(m3)                            // Receive message 3
+    ]
+  --[ Commit(B, A, <'resp', Na, Nb>)    // Action fact used to log identities to specify that they must not be compromised in the property! 
+    ]->
+    [ Secret(B, A, Na)                  // Create fact that Na is secret from Bob's point of view
+    , Secret(B, A, Nb)                  // Create fact that Nb is secret from Bob's point of view
+    ]
+
+rule Secrecy_claim:
+  [ Secret(A, B, m) ] --[ Secret(A, B, m) ]-> []
+
+/* Security properties we want to prove */
+
+/* 
+Note that we are using an untyped protocol model.
+The contents of the 'Na' variable in rule A_1 may therefore in general be any
+message. This leads to unsolved chain constraints when checking what message
+can be extracted from the message sent by rule A_1. In order to get rid of
+these constraints, we require the following sources invariant that relates the
+point of instantiation to the point of sending by either the adversary or the
+initiator.
+
+In order to understand the use of this sources invariant you might try the
+following experiment. Comment out this sources invariant and then check the
+precomputed case distinctions in the GUI. Try to complete the proof of the
+'nonce_secrecy' lemma.
+*/
+lemma types [sources]:
+    " 
+    ( All Na m1 #i.
+      In_B_1_Na(Na, m1) @i
+      ==> 
+      ( (Ex #j. KU(Na) @j & j < i)
+        | (Ex #j. Out_A_1(m1) @j) 
+      )
+    ) 
+    & ( All Nb m2 #i.
+        In_A_2_Nb(Nb, m2) @i
+        ==>
+        ( (Ex #j. KU(Nb) @j & j < i) 
+          | (Ex #j. Out_B_1(m2) @j)
+        )
+    )
+    "
+
+/* Nonce secrecy from the perspective of both Alice and Bob */
+lemma nonce_secrecy:
+    " /* It cannot be that */
+    not(
+        Ex A B secret #i.
+        /* somebody claims to have setud a shared secret */
+        Secret(A, B, secret) @i
+        /* but the attacker knows it */
+        & (Ex #j. K(secret) @j)
+        /* without having performed a long-term key reveal */
+        & not(Ex #r. RevLtk(A) @r)
+        & not(Ex #r. RevLtk(B) @r)
+    )
+    "
+
+/* Injective agreement from the perspective of both Alice and Bob */
+lemma injective_agree:
+    " /* Whenever somebody commits to running a session, then */
+    All actor peer params #i.
+    Commit(actor, peer, params) @i
+    ==>
+    /* there is somebody running a session with the same parameters */
+    ( Ex #j. Running(actor, peer, params) @j & j < i
+      /* and there is no other commit on the same parameters */
+      & not(Ex actor2 peer2 #i2.
+            Commit(actor2, peer2, params) @i2 & not(#i = #i2)
+           )
+    )
+    /* or the adversary perform a long-term key reveal on actor or peer */
+    | (Ex #r. RevLtk(actor) @r)
+    | (Ex #r. RevLtk(peer) @r)
+    "
+
+/* Check that an honest setup between two agents is possible */
+lemma session_key_setup_possible:
+    exists-trace
+    "
+    Ex A B s #i.
+    Secret(A, B, s) @i
+    & not(Ex #r. RevLtk(A) @r)
+    & not(Ex #r. RevLtk(B) @r)
+    "
+
+end

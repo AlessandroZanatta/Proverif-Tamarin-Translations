@@ -1,0 +1,86 @@
+(* Needham Schroeder Public Key *)
+
+(* 
+    The protocol is semplified as follows: 
+    A -> B: aenc((Na,pk(skA)), pk(skB))
+    B -> A: aenc((Na,Nb), pk(skA))
+    A -> B: aenc(Nb, pk(skB))
+*)
+
+(* Dolev-Yao channel *)
+free c: channel.
+
+(* Public key encryption *)
+type pkey.
+type skey.
+
+fun pk(skey): pkey.
+fun aenc(bitstring, pkey): bitstring.
+reduc forall m: bitstring, sk: skey; adec(aenc(m, pk(sk)), sk) = m.
+
+(* Signatures *)
+type spkey.
+type sskey.
+
+fun spk(sskey): spkey.
+fun sign(bitstring, sskey): bitstring.
+reduc forall m: bitstring, ssk: sskey; getmess(sign(m, ssk)) = m.
+reduc forall m: bitstring, ssk: sskey; checksign(sign(m, ssk), spk(ssk)) = m.
+
+(* Symmetric key encryption *)
+fun senc(bitstring, bitstring): bitstring.
+reduc forall m: bitstring, k: bitstring; sdec(senc(m, k), k) = m.
+
+(* Authentication queries *)
+
+event beginBparam( pkey ).
+event endBparam( pkey ).
+event beginAparam ( pkey ).
+event endAparam ( pkey ).
+
+query x: pkey; inj-event(endBparam(x)) ==> inj-event(beginBparam(x)).
+query x: pkey; inj-event(endAparam(x)) ==> inj-event(beginAparam(x)).
+
+(* Secrecy queries *)
+free secretANa , secretANb ,secretBNa , secretBNb : bitstring [ private ]. (* View manual page 66 for more info *)
+
+query attacker(secretANa);
+      attacker(secretANb);
+      attacker(secretBNa);
+      attacker(secretBNb).
+
+(* Process macros *)
+
+(* Alice *)
+let processA(pkB: pkey, skA: skey) = 
+    in(c, pkX: pkey); (* Taking a public key is modeled this way to allow Alice to start a protocol with ANYONE that provides a key! *)
+    event beginBparam(pkX); (* A started a protocol with key pkX *)
+    new Na: bitstring;
+    out(c, aenc((Na, pk(skA)), pkX));
+    in(c, m: bitstring);
+    let (=Na, NX: bitstring) = adec(m, skA) in 
+        out(c, aenc(NX, pkX));
+    if pkX = pkB then
+        event endAparam(pk(skA)); (* For the authentication queries, this event *should* be fired every time the protocol runs, assuming correctness! *)
+    out(c, senc(secretANa, Na)); (* Used to verify the secrecy of Na, just a trick needed for Proverif (see page 65 of manual) *)
+    out(c, senc(secretANb, NX)).
+
+(* Bob *)
+let processB(pkA: pkey, skB: skey) = 
+    in(c, m: bitstring);
+    let (NY: bitstring, pkY: pkey) = adec(m, skB) in
+    event beginAparam(pkY); (* B started a protocol run with key pkY *)
+    new Nb: bitstring;
+    out(c, aenc((NY, Nb), pkY));
+    in(c, m3: bitstring);
+    if Nb = adec(m3, skB) then 
+        event endAparam(pk(skB));
+    out(c, senc(secretBNa, NY));
+    out(c, senc(secretBNb, Nb)).
+
+
+(* Main process *)
+process
+    new skA: skey; let pkA = pk(skA) in out (c, pkA);
+    new skB: skey; let pkB = pk(skB) in out (c, pkB);
+    ( (!processA(pkB, skA)) | (!processB(pkA, skB)) )

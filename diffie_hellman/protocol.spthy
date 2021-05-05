@@ -1,0 +1,110 @@
+theory Ephemeral_DiffieHellman
+
+begin
+builtins: diffie-hellman, symmetric-encryption
+
+/*************/
+/* Utilities */
+/*************/
+
+rule Register_g:
+    [ Fr(~g) ]  // Generate new generator
+    --[]->
+    [ !G(~g)    // Save it as a presistent fact
+    , Out(~g)   // and make it public, as supposed to be
+    ]
+
+/************/
+/* Protocol */
+/************/
+
+rule P_1:
+    [ !G(g)                     // Get generator
+    , Fr(~a)                    // Generate secret parameter    
+    ]
+    --[ Honest(g, ~a) ]->
+    [ Out(g^~a)                 // Send out half key
+    , St_P_1(~a)                // Save state
+    ]
+
+rule Q_1:
+    [ !G(g)
+    , In(g_a)                   // Receive P's half key
+    , Fr(~b)                    // Generate secret parameter
+    ]
+    --[ Honest(g, ~b) ]->
+    [ Out(g^~b)                 // Send out half key
+    , St_Q_1(~b, g_a)           // Save state
+    ]
+
+rule P_2:
+    let
+        k = g_b ^ a             // Symmetric encryption key (g^a^b = g^(ab))
+        c = senc(~m, k)         // Encrypted message
+    in
+    [ St_P_1(a)                 // Recover state
+    , In(g_b)                   // Receive Q's half key
+    , Fr(~m)                    // Generate fresh message m (intended to be secret)
+    ]
+  --[ PSendsMessage(k) ]->      // Action fact stating we sent out the message
+    [ Out(c) ]
+
+rule Q_2:
+    let
+        k = g_a ^ b             // Symmetric encryption key (g^b^a = g^(ba)) 
+        c = senc(m, k)          // Encrypted message
+    in
+    [ !G(g)
+    , St_Q_1(b, g_a)            // Recover state
+    , In(c)                     // Receive encrypted message
+    ]
+  --[ QReceivesMessage(k)       // Action fact saying we've received a message with key k
+    , Secret(m)              // and we also believe that message m is secret
+    ]-> 
+    [] 
+
+/***********************/
+/* Security properties */
+/***********************/
+
+lemma injective_correspondence:
+    "
+        /* Whenever an agent receives a message with key k */
+        All k #i.
+        QReceivesMessage(k) @i 
+        ==>
+        /* there is somebody running the protocol at the same time (and key k) */
+        ( Ex #j.
+          PSendsMessage(k) @j & j < i
+          /* and there is no one else who sent a message with key k */
+          & not
+            ( Ex k #i2.
+                QReceivesMessage(k) @i2 & not( #i = #i2 )
+            )
+        )
+    "
+
+lemma secret_message:
+    "
+    /* It cannot be that */
+    not (
+        /* two honest agents exchanged a secret message */
+        Ex g a b secret #i #h_a #h_b.
+        Honest(g, a) @h_a
+        & Honest(g, b) @h_b
+        & Secret(secret) @i
+        /* and the attacker knows it */
+        & (Ex #j. K(secret) @j)
+        /* without also knowing one of secret keys */
+        & not(Ex #k1 #k2. K(a) @k1 | K(b) @k2)
+    )        
+    "
+
+lemma executable:
+    exists-trace
+    "
+        Ex k #i.
+        QReceivesMessage(k) @i
+    "
+
+end
