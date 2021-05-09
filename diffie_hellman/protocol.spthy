@@ -2,38 +2,24 @@ theory Ephemeral_DiffieHellman
 
 begin
 builtins: diffie-hellman, symmetric-encryption
-
-/*************/
-/* Utilities */
-/*************/
-
-rule Register_g:
-    [ Fr(~g) ]  // Generate new generator
-    --[]->
-    [ !G(~g)    // Save it as a presistent fact
-    , Out(~g)   // and make it public, as supposed to be
-    ]
-
+ 
 /************/
 /* Protocol */
 /************/
 
 rule P_1:
-    [ !G(g)                     // Get generator
-    , Fr(~a)                    // Generate secret parameter    
-    ]
-    --[ Honest(g, ~a) ]->
-    [ Out(g^~a)                 // Send out half key
+    [ Fr(~a) ]                  // Generate secret parameter    
+    --[]->
+    [ Out('g'^~a)               // Send out half key
     , St_P_1(~a)                // Save state
     ]
 
 rule Q_1:
-    [ !G(g)
-    , In(g_a)                   // Receive P's half key
+    [ In(g_a)                   // Receive P's half key
     , Fr(~b)                    // Generate secret parameter
     ]
-    --[ Honest(g, ~b) ]->
-    [ Out(g^~b)                 // Send out half key
+    --[]->
+    [ Out('g'^~b)               // Send out half key
     , St_Q_1(~b, g_a)           // Save state
     ]
 
@@ -54,12 +40,11 @@ rule Q_2:
         k = g_a ^ b             // Symmetric encryption key (g^b^a = g^(ba)) 
         c = senc(m, k)          // Encrypted message
     in
-    [ !G(g)
-    , St_Q_1(b, g_a)            // Recover state
+    [ St_Q_1(b, g_a)            // Recover state
     , In(c)                     // Receive encrypted message
     ]
   --[ QReceivesMessage(k)       // Action fact saying we've received a message with key k
-    , Secret(m)              // and we also believe that message m is secret
+    , Secret(m, k)              // and we also believe that message m is secret
     ]-> 
     [] 
 
@@ -82,22 +67,6 @@ lemma injective_correspondence:
                 QReceivesMessage(k) @i2 & not( #i = #i2 )
             )
         )
-    "
-
-lemma secret_message:
-    "
-    /* It cannot be that */
-    not (
-        /* two honest agents exchanged a secret message */
-        Ex g a b secret #i #h_a #h_b.
-        Honest(g, a) @h_a
-        & Honest(g, b) @h_b
-        & Secret(secret) @i
-        /* and the attacker knows it */
-        & (Ex #j. K(secret) @j)
-        /* without also knowing one of secret keys */
-        & not(Ex #k1 #k2. K(a) @k1 | K(b) @k2)
-    )        
     "
 
 lemma executable:
