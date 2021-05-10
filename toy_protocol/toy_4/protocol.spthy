@@ -1,0 +1,126 @@
+theory Toy4
+
+/*
+ * Protocol taken from: https://github.com/benjaminkiesl/tamarin_toy_protocol
+ *
+ *      A -> B: Na
+ *      B -> A: Nb
+ *      A -> B: 'ACK'  (A also computes a Session Key derived from the two nonces and goes to a DONE state)
+ *      After the 'ACK', B computes the SK and goes to a DONE state
+ */
+
+begin
+
+functions: KDF/3, mac/2
+functions: MasterSecret/0 [private] // Secret shared between the two honest agents
+
+/***********************/
+/* Protocol definition */
+/***********************/
+
+rule Init:
+    [ Fr(~idA)
+    , Fr(~idB) 
+    ]
+    -->
+    [ AState(~idA, 'INIT', 'EMPTY_STATE')
+    , BState(~idB, 'INIT', 'EMPTY_STATE')
+    ]
+
+rule A_1:
+    [ AState(~idA, 'INIT', 'EMPTY_STATE')
+    , Fr(~Na)
+    ]
+    --[ ASendsNonce(~idA, ~Na) ]->
+    [ Out(~Na)
+    , AState(~idA, 'SENT_NONCE', ~Na) 
+    ]
+
+rule A_1_Again:
+    [ AState(~idA, 'SENT_NONCE', ~Na) ]
+    --[ ASendsNonceAgain(~idA, ~Na) ]->
+    [ Out(~Na) 
+    , AState(~idA, 'SENT_NONCE', ~Na)
+    ]
+
+rule B_1:
+    [ BState(~idB, 'INIT', 'EMPTY_STATE')
+    , In(Na)
+    , Fr(~Nb)
+    ]
+    -->
+    [ Out(~Nb)
+    , BState(~idB, 'SENT_NONCE', <Na, ~Nb>)
+    ]
+
+rule A_2:
+    let
+        Ks = KDF(MasterSecret, ~Na, Nb) // Session key
+        ACK = mac('ACK', Ks)
+    in
+    [ AState(~idA, 'SENT_NONCE', ~Na) 
+    , In(Nb)
+    ]
+    --[ AInstallsKey(~idA, ~Na, Nb, Ks) ]->
+    [ Out(ACK)
+    , AState(~idA, 'INSTALLED_KEY', <~Na, Nb, Ks>)
+    ]
+
+rule B_2:
+    let
+        Ks = KDF(MasterSecret, Na, ~Nb) // Session key
+        ACK = mac('ACK', Ks) 
+    in
+    [ BState(~idB, 'SENT_NONCE', <Na, ~Nb>)
+    , In(ACK)
+    ]
+    --[ BInstallsKey(~idB, Na, ~Nb, Ks) ]->
+    [ BState(~idB, 'INSTALLED_KEY', <Na, ~Nb, Ks>) ]
+
+/*******************/
+/* Security lemmas */
+/*******************/
+
+// reuse -> Will use this lemma in all subsequent lemmas
+// use_induction -> This is needed to end the otherwise infinite loop caused by using infinitely the rule A_1_Again
+lemma A_must_send_initial_nonce [reuse, use_induction]:
+    "
+    All idA Na #i.
+    ASendsNonceAgain(idA, Na) @i
+    ==> Ex #j. ASendsNonce(idA, Na) @j & j < i
+    "
+
+lemma executable:
+    exists-trace
+    "
+    Ex idA idB Na Nb Ks #i #j. 
+    AInstallsKey(idA, Na, Nb, Ks) @i
+    & BInstallsKey(idB, Na, Nb, Ks) @j
+    "
+
+lemma secret_key_A:
+    "
+    All idA Na Nb Ks #i.
+    AInstallsKey(idA, Na, Nb, Ks) @i
+    ==>
+    not(Ex #j. K(Ks) @j)
+    "
+
+lemma secret_key_B:
+    "
+    All idB Na Nb Ks #i.
+    BInstallsKey(idB, Na, Nb, Ks) @i
+    ==>
+    not(Ex #j. K(Ks) @j)
+    "
+
+lemma agreement:
+    "
+    All idB Na Nb Ks #i.
+    BInstallsKey(idB, Na, Nb, Ks) @i
+    ==>
+    (Ex idA #j. AInstallsKey(idA, Na, Nb, Ks) @j & #j < #i)
+    // | (Ex #r. K(MasterSecret) @r)
+    "
+
+end
