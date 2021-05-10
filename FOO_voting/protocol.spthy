@@ -1,0 +1,58 @@
+theory FOO_voting
+
+begin
+
+// Note: we're NOT using builtin signing theory
+// because the second unblind gives a parse error with that one.
+// The reason is unknown.
+
+functions:
+    sg/2, ver/2, pk/1, getmsg/1, // Revealing signing 
+    commit/2, open/2,            // Commitments 
+    blind/2,  unblind/2,         // Blinding/unblinding of a message
+    skR/0,                       // Sign key of the Administrator. The attacker can play the role of the administrator
+    skV/0                        // Sign key of a voter
+
+equations:
+    ver(sg(msg, skey), pk(skey)) = msg,                         // Verify signature
+    getmsg(sg(msg, skey)) = msg,                                // Reveal signed message
+    open(commit(msg, k), k) = msg,                              // Open commited message
+    unblind(blind(msg, bkey), bkey) = msg,                      // Unblind a blinded message
+    unblind(sg(blind(msg, bkey), skey), bkey) = sg(msg, skey)   // The unblind of a signed blinded message is the signature of the message itself
+
+functions: v1/0, v2/0 // Two possible votes
+
+rule Foo_1:
+    let
+        commited_vote = commit(diff(v1, v2), ~commit_key)
+        blinded_commited_vote = blind(commited_vote, ~blinding_key)
+    in
+    [ Fr(~idF)
+    , Fr(~commit_key)
+    , Fr(~blinding_key)
+    ]
+    --[ VoterSentBlindCommVote(~idF, blinded_commited_vote) ]->
+    [ Out(<pk(skV), sg(blinded_commited_vote, skV)>)
+    , FooState(~idF, 'SENT_BLIND_COMM_VOTE', <~commit_key, ~blinding_key, blinded_commited_vote>) 
+    ]
+
+rule FOO_2:
+    let
+        // blinded_commited_vote = blind(commit(diff(v1, v2), ~commit_key), ~blinding_key)
+        signed_blinded_commited_vote = ver(blinded_commited_vote, pk(skR))
+        signed_commited_vote = unblind(signed_blinded_commited_vote, ~blinding_key)
+    in
+    [ FooState(~idF, 'SENT_BLIND_COMM_VOTE', <~comm_key, ~blinding_key, blinded_commited_vote>)
+    , In(signed_blinded_committed_vote)
+    ]
+  --[ Equal(signed_blinded_commited_vote, blinded_commited_vote)
+    , VoterUnblindsSignedVote(~idF, signed_commited_vote)
+    ]->
+    [ Out(<signed_commited_vote, ~comm_key>) ]
+
+restriction Equal:
+    "
+    All x y #NOW. Equal(x, y) @NOW ==> x = y
+    "
+
+end
