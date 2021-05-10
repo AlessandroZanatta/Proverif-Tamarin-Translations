@@ -1,0 +1,14 @@
+theory groups_observational_equivalence
+
+begin
+builtins: diffie-hellman
+
+rule Send:
+    [ Fr(~a)
+    , Fr(~b)
+    , Fr(~c) 
+    ]
+    -->
+    [Out(<'g'^~a, 'g'^~b, diff('g'^~a^~b, 'g'^~c)>)]
+
+end

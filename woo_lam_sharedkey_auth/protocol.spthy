@@ -1,0 +1,200 @@
+theory WooLamSharedKeyAuthProtocol
+
+/*
+ *
+ * A -> B : A
+ * B -> A : N (fresh)
+ * A -> B : { m3, N }_kAS
+ * B -> S : { m4, A,{ m3, N }_kAS }_kBS
+ * S -> B : { m5, N }_kBS
+ * B: verify { m5, N }_kBS = the message from S
+ *
+ */
+
+begin
+builtins: symmetric-encryption
+
+// Tags used by the protocol
+functions: m3/0, m4/0, m5/0
+
+// Shared keys are modeled as private functions. 
+// This way, these are NOT known to the attacker (assumption of the protocol).
+functions: keyAS/0, keyBS/0 [private]  
+
+/*************/
+/* Key setup */
+/*************/
+
+rule Register_key:
+    [ In(<X, Kx>) ]
+    --[NotEqAny(X, <'A', 'B'>)]->
+    [ !Ltk(X, Kx) ]
+
+// Reveal of a shared key
+rule Reveal_key:
+    [ !Ltk(X, Kxs) ]
+    --[ RevealKey(X) ]->
+    [ Out(Kxs) ]
+
+// Associate keys with correct owner.
+// Keys are always shared with the server S.
+rule AssociateKeyA:
+    []
+    -->
+    [ !Ltk('A', keyAS) ]
+
+rule AssociateKeyB:
+    []
+    -->
+    [ !Ltk('B', keyBS) ]
+
+/************/
+/* Protocol */
+/************/
+
+rule A_setup:
+    [ In(<xA, xB>)                      // The attacker chooses the initiator identity
+    , !Ltk(xA, Kas)                     // Get the corresponding key
+    ]
+    --[ EqualAny(xA, <'A', 'B'>) ]->    // The initiator must be either 'A' or 'B'
+    [ AState(xA, 'INIT', <xB, Kas>) ]   // Save state
+
+rule B_setup:
+    [ In(xB)                            // The attacker chooses the responder identity
+    , !Ltk(xB, Kbs)                     // Get the corresponding key
+    ]
+    --[ EqualAny(xB, <'A', 'B'>) ]->    // The responder must be either 'A' or 'B'
+    [ BState(xB, 'INIT', <Kbs>) ]
+
+rule S_setup:
+    [ In(xB)                            // Choose the B host
+    , !Ltk(xB, Kbs)                     // Recover his key
+    , Fr(~idS)                          // Identity of server, might be useless
+    ] 
+    -->
+    [ SState(~idS, 'INIT', <xB, Kbs>) ]
+
+
+// Real protocol starts here
+rule A_1:
+    [ AState(A, 'INIT', <xB, Kas>) ]            // Recover state from setup
+    --[ BeginBParam(A, xB) ]->                  // Used for injective correspondence lemma
+    [ Out(A)                                    // Send out identity of initiator (Step 1)
+    , AState(A, 'SENT_ID', <xB, Kas>)           // Save state
+    ]
+
+rule B_1:
+    [ BState(B, 'INIT', <Kbs>)                  // Recover state from setup
+    , In(xA)                                    // Receive initiator identity
+    , Fr(~N)                                    // Generate fresh nonce
+    ]
+    -->
+    [ Out(~N)                                   // and send it back to initiator (Step 2)
+    , BState(B, 'SENT_NONCE', <xA, Kbs, ~N>)    // Save state
+    ]
+
+rule A_2:
+    [ AState(A, 'SENT_ID', <xB, Kas>)           // Recover state
+    , In(N)                                     // Get nonce from responder
+    ]
+    --[ BeginBFull(A, xB, N) ]->                // Used for injective correspondence lemma
+    [ Out(senc(<m3, N>, Kas))                   // Step 3
+    , AState(A, 'SENT_ENC_N', <xB, Kas>)        // Save state
+    ]
+
+rule B_2:
+    [ BState(B, 'SENT_NONCE', <xA, Kbs, ~N>)    // Recover state
+    , In(enc_Kas)                               // Encrypted message with Kas key
+    ]
+    --[]->
+    [ Out(senc(<m4, xA, enc_Kas>, Kbs))         // Step 4
+    , BState(B, 'SENT_ENC_N', <xA, Kbs, ~N>)    // Save state
+    ]
+
+rule S_1:
+    let
+        encA = senc(<m3, N>, Kas)               // Encrypted message with key Kas
+        encB = senc(<m4, xA, encA>, Kbs)        // Encrypted message with key Kbs
+    in
+    [ SState(~idS, 'INIT', <B, Kbs>)            // Recover state
+    , In(encB)                                  // Receive message from B
+    , !Ltk(xA, Kas)                             // Get Kas key, used to decrypt encA
+    ]
+    -->
+    [ SState(~idS, 'ANSWERED', <B, xA, Kbs>)
+    , Out(senc(<m5, N>, Kbs))                   // Step 5 
+    ]
+
+rule B_3:
+    let
+        encB = senc(<m5, ~N>, Kbs)              // Message from S
+    in
+    [ BState(B, 'SENT_ENC_N', <xA, Kbs, ~N>)    // Recover state
+    , In(encB)                                  // Receive message from S
+    ]
+  --[ EqualAny(xA, <'A', 'B'>)                  // Check that xA is actually 'A' or 'B'
+    , EndBParam(xA, B)
+    , EndBFull(xA, B, ~N)
+    ]->
+    []
+
+/*********************/
+/* Restriction rules */
+/*********************/
+
+restriction Equal:
+    "
+    All x y1 y2 #NOW. EqualAny(x, <y1, y2>) @NOW ==> (x = y1 | x = y2)
+    "
+
+restriction NotEq:
+    "
+    All x y1 y2 #NOW. NotEqAny(x, <y1, y2>) @NOW ==> not(x = y1) & not(x = y2)
+    "
+
+/*******************/
+/* Security lemmas */
+/*******************/
+
+
+// NOT WORKING
+// lemma executable:
+//     exists-trace
+//     "
+//     Ex a b n #i #j #k #l. 
+//         BeginBParam(a, b) @i 
+//         & BeginBFull(a, b, n) @k 
+//         & EndBFull(a, b, n) @l 
+//         & EndBParam(a, b) @j 
+//         & not(a = b)
+//     "
+
+// Injective agreement
+lemma injective_agreement:
+    "
+    /* Whenever an agent finishes the protocol with Nonce N */
+    All x y n #i.
+    not(x = y)
+    & ((x = 'A' & y = 'B') | (x = 'B' & y = 'A'))
+    & EndBFull(x, y, n) @i
+    ==>
+    /* there is somebody who's running the protocol with the same N */
+    ( Ex #j.
+      BeginBFull(x, y, n) @j & #j < #i
+      /* and no one else is using the same N */
+      & not(Ex x1 y1 #i1. EndBFull(x1, y1, n) @i1 & not(#i = #i1))
+    )
+    /* or the adversary performed a shared key reveal */
+    | (Ex #r. RevealKey(x) @r)
+    | (Ex #r. RevealKey(y) @r)
+    "
+
+lemma executable:
+    exists-trace
+    "
+    Ex A B N #i #j.
+    BeginBFull(A, B, N) @i
+    & EndBFull(A, B, N) @j
+    "
+
+end

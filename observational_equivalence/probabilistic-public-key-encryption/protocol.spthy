@@ -1,0 +1,27 @@
+theory probabilistic_public_key_encryption
+
+begin
+functions: 
+    pk/1,
+    enc/3, dec/2
+
+equations:
+    dec(enc(msg, seed, pk(privKey)), privKey) = msg
+
+rule Send_1:
+    [ Fr(~privKey) ]
+    -->
+    [ Out(pk(~privKey))
+    , State(~privKey) 
+    ]
+
+rule Send_2:
+    [ State(~privKey)
+    , In(block)
+    , Fr(~seed)
+    , Fr(~encryptedBlock)
+    ]
+    -->
+    [ Out(diff(enc(block, ~seed, pk(~privKey)), ~encryptedBlock)) ]
+
+end
