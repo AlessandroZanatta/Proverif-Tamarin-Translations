@@ -7,44 +7,65 @@ builtins: diffie-hellman, symmetric-encryption
 /* Protocol */
 /************/
 
-rule P_1:
-    [ Fr(~a) ]                  // Generate secret parameter    
-    --[]->
-    [ Out('g'^~a)               // Send out half key
-    , St_P_1(~a)                // Save state
+rule Init:
+    [ Fr(~idA)                                  // A id
+    , Fr(~idB)                                  // B id
+    ]
+    -->
+    [ AState(~idA, 'INIT', 'EMPTY_STATE')       // Create initial state for A
+    , BState(~idB, 'INIT', 'EMPTY_STATE')       // Create initial state for B
     ]
 
-rule Q_1:
-    [ In(g_a)                   // Receive P's half key
-    , Fr(~b)                    // Generate secret parameter
-    ]
-    --[]->
-    [ Out('g'^~b)               // Send out half key
-    , St_Q_1(~b, g_a)           // Save state
+rule A_1:
+    [ AState(~idA, 'INIT', 'EMPTY_STATE')       // Recover state
+    , Fr(~a) ]                                  // Generate secret parameter    
+    --[ ASendsHalfKey(~idA, ~a) ]->             
+    [ Out('g'^~a)                               // Send out half key
+    , AState(~idA, 'SENT', ~a)                  // Save state
     ]
 
-rule P_2:
+rule B_1:
+    let 
+        k = g_a ^ ~b                            // Symmetric encryption key (g^b^a = g^(ba))
+    in
+    [ BState(~idB, 'INIT', 'EMPTY_STATE')       // Recover state
+    , In(g_a)                                   // Receive P's half key
+    , Fr(~b)                                    // Generate secret parameter
+    ]
+  --[ BSendsHalfKey(~idB, ~b)
+    , BInstallsKey(~idB, k)                     // MAYBE: add g_a and g_b to this action fact
+    ]->
+    [ Out('g'^~b)                               // Send out half key
+    , BState(~idB, 'INSTALLED', <~b, g_a, k>)   // Save state
+    ]
+
+rule A_2:
     let
-        k = g_b ^ a             // Symmetric encryption key (g^a^b = g^(ab))
+        k = g_b ^ ~a            // Symmetric encryption key (g^a^b = g^(ab))
         c = senc(~m, k)         // Encrypted message
     in
-    [ St_P_1(a)                 // Recover state
+    [ AState(~idA, 'SENT', ~a)  // Recover state
     , In(g_b)                   // Receive Q's half key
     , Fr(~m)                    // Generate fresh message m (intended to be secret)
     ]
-  --[ PSendsMessage(k) ]->      // Action fact stating we sent out the message
-    [ Out(c) ]
-
-rule Q_2:
-    let
-        k = g_a ^ b             // Symmetric encryption key (g^b^a = g^(ba)) 
-        c = senc(m, k)          // Encrypted message
-    in
-    [ St_Q_1(b, g_a)            // Recover state
-    , In(c)                     // Receive encrypted message
+  --[ AInstallsKey(~idA, k)
+    , ASendsMessage(~idA, k)
+    , ASecret(~idA, ~m)
+    ]->
+    [ Out(c)
+    , AState(~idA, 'INSTALLED', <~a, g_b, k>)
     ]
-  --[ QReceivesMessage(k)       // Action fact saying we've received a message with key k
-    , Secret(m, k)              // and we also believe that message m is secret
+
+rule B_2:
+    let
+         
+        c = senc(m, k)                          // Encrypted message
+    in
+    [ BState(~idB, 'INSTALLED', <~b, g_a, k>)   // Recover state
+    , In(c)                                     // Receive encrypted message
+    ]
+  --[ BReceivesMessage(~idB, k)                       
+    , BSecret(~idB, m)                            
     ]-> 
     [] 
 
@@ -52,28 +73,40 @@ rule Q_2:
 /* Security properties */
 /***********************/
 
-lemma injective_correspondence:
+lemma injective_agreement:
     "
         /* Whenever an agent receives a message with key k */
-        All k #i.
-        QReceivesMessage(k) @i 
+        All idB k #i.
+        BReceivesMessage(idB, k) @i 
         ==>
-        /* there is somebody running the protocol at the same time (and key k) */
-        ( Ex #j.
-          PSendsMessage(k) @j & j < i
-          /* and there is no one else who sent a message with key k */
+        /* there is somebody who've sent it with the same key k */
+        ( Ex idA #j.
+          ASendsMessage(idA, k) @j & j < i
+          /* and there is no other message sent to idB with key k (injective) */
           & not
-            ( Ex k #i2.
-                QReceivesMessage(k) @i2 & not( #i = #i2 )
+            ( Ex #i2.
+                BReceivesMessage(idB, k) @i2 & not( #i = #i2 )
             )
         )
+    "
+
+lemma secret_message:
+    "
+    /* Whenever two agents believe that a message is secret */
+    All idA idB m #i #j.
+    ASecret(idA, m) @i
+    & BSecret(idB, m) @j
+    ==>
+    /* the attacker does indeed not know it */
+    not(Ex #r. K(m) @r)
     "
 
 lemma executable:
     exists-trace
     "
-        Ex k #i.
-        QReceivesMessage(k) @i
+        Ex idB idA k #i #j.
+        AInstallsKey(idA, k) @i
+        & BInstallsKey(idB, k) @j
     "
 
 end
