@@ -1,4 +1,4 @@
-theory Ephemeral_DiffieHellman
+theory Anonymous_DiffieHellman
 
 begin
 builtins: diffie-hellman, symmetric-encryption

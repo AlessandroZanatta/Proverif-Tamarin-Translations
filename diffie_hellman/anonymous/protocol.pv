@@ -1,5 +1,5 @@
 (*
- * Protocol 1: Ephemeral Diffie-Hellman
+ * Protocol 1: Anonymous Diffie-Hellman
  *
  * Assume that:
  *
