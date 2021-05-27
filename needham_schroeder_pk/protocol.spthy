@@ -112,18 +112,18 @@ precomputed case distinctions in the GUI. Try to complete the proof of the
 */
 lemma types [sources]:
     " 
-    ( All Na m1 #i.
+    ( ∀ Na m1 #i.
       In_B_1_Na(Na, m1) @i
       ==> 
-      ( (Ex #j. KU(Na) @j & j < i)
-        | (Ex #j. Out_A_1(m1) @j) 
+      ( (∃ #j. KU(Na) @j ∧ j < i)
+        ∨ (∃ #j. Out_A_1(m1) @j) 
       )
     ) 
-    & ( All Nb m2 #i.
+    ∧ ( ∀ Nb m2 #i.
         In_A_2_Nb(Nb, m2) @i
         ==>
-        ( (Ex #j. KU(Nb) @j & j < i) 
-          | (Ex #j. Out_B_1(m2) @j)
+        ( (∃ #j. KU(Nb) @j ∧ j < i) 
+          ∨ (∃ #j. Out_B_1(m2) @j)
         )
     )
     "
@@ -131,44 +131,45 @@ lemma types [sources]:
 /* Nonce secrecy from the perspective of both Alice and Bob */
 lemma nonce_secrecy:
     " /* It cannot be that */
-    not(
-        Ex A B secret #i.
+    ¬(
+        ∃ A B secret #i.
         /* somebody claims to have setud a shared secret */
         Secret(A, B, secret) @i
         /* but the attacker knows it */
-        & (Ex #j. K(secret) @j)
+        ∧ (∃ #j. K(secret) @j)
         /* without having performed a long-term key reveal */
-        & not(Ex #r. RevLtk(A) @r)
-        & not(Ex #r. RevLtk(B) @r)
+        ∧ ¬(∃ #r. RevLtk(A) @r)
+        ∧ ¬(∃ #r. RevLtk(B) @r)
     )
     "
+
 
 /* Injective agreement from the perspective of both Alice and Bob */
 lemma injective_agree:
     " /* Whenever somebody commits to running a session, then */
-    All actor peer params #i.
+    ∀ actor peer params #i.
     Commit(actor, peer, params) @i
     ==>
     /* there is somebody running a session with the same parameters */
-    ( Ex #j. Running(actor, peer, params) @j & j < i
+    ( ∃ #j. Running(actor, peer, params) @j ∧ j < i
       /* and there is no other commit on the same parameters */
-      & not(Ex actor2 peer2 #i2.
-            Commit(actor2, peer2, params) @i2 & not(#i = #i2)
+      & ¬(∃ actor2 peer2 #i2.
+            Commit(actor2, peer2, params) @i2 ∧ ¬(#i = #i2)
            )
     )
     /* or the adversary perform a long-term key reveal on actor or peer */
-    | (Ex #r. RevLtk(actor) @r)
-    | (Ex #r. RevLtk(peer) @r)
+    ∨ (∃ #r. RevLtk(actor) @r)
+    ∨ (∃ #r. RevLtk(peer) @r)
     "
 
 /* Check that an honest setup between two agents is possible */
 lemma session_key_setup_possible:
     exists-trace
     "
-    Ex A B s #i.
+    ∃ A B s #i.
     Secret(A, B, s) @i
-    & not(Ex #r. RevLtk(A) @r)
-    & not(Ex #r. RevLtk(B) @r)
+    ∧ not(Ex #r. RevLtk(A) @r)
+    ∧ not(Ex #r. RevLtk(B) @r)
     "
 
 end

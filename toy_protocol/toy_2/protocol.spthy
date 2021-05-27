@@ -74,34 +74,34 @@ rule B_2:
 lemma executable:
     exists-trace
     "
-    Ex idA idB Na Nb Ks #i #j. 
+    ∃ idA idB Na Nb Ks #i #j. 
     AInstallsKey(idA, Na, Nb, Ks) @i
-    & BInstallsKey(idB, Na, Nb, Ks) @j
+    ∧ BInstallsKey(idB, Na, Nb, Ks) @j
     "
 
 lemma secret_key_A:
     "
-    All idA Na Nb Ks #i.
+    ∀ idA Na Nb Ks #i.
     AInstallsKey(idA, Na, Nb, Ks) @i
     ==>
-    not(Ex #j. K(Ks) @j)
+    ¬(∃ #j. K(Ks) @j)
     "
 
 lemma secret_key_B:
     "
-    All idB Na Nb Ks #i.
+    ∀ idB Na Nb Ks #i.
     BInstallsKey(idB, Na, Nb, Ks) @i
     ==>
-    not(Ex #j. K(Ks) @j)
+    ¬(∃ #j. K(Ks) @j)
     "
 
 lemma agreement:
     "
-    All idB Na Nb Ks #i.
+    ∀ idB Na Nb Ks #i.
     BInstallsKey(idB, Na, Nb, Ks) @i
     ==>
-    (Ex idA #j. AInstallsKey(idA, Na, Nb, Ks) @j & #j < #i)
-    // | (Ex #r. K(MasterSecret) @r)
+    (∃ idA #j. AInstallsKey(idA, Na, Nb, Ks) @j ∧ #j < #i)
+    // ∨ (∃ #r. K(MasterSecret) @r)
     "
 
 end

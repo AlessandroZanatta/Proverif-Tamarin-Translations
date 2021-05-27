@@ -9,6 +9,6 @@ rule Send:
     , Fr(~c) 
     ]
     -->
-    [Out(<'g'^~a, 'g'^~b, diff('g'^~a^~b, 'g'^~c)>)]
+    [ Out(<'g'^~a, 'g'^~b, diff('g'^~a^~b, 'g'^~c)>) ]
 
 end

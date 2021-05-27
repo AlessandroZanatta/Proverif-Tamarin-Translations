@@ -52,7 +52,7 @@ rule FOO_2:
 
 restriction Equal:
     "
-    All x y #NOW. Equal(x, y) @NOW ==> x = y
+    ∀ x y #NOW. Equal(x, y) @NOW ==> x = y
     "
 
 end
