@@ -65,37 +65,36 @@ rule B_2:
 lemma injective_agreement:
     "
         /* Whenever an agent receives a message with key k */
-        All idB k #i.
+        ∀ idB k #i.
         BReceivesMessage(idB, k) @i 
         ==>
         /* there is somebody who've sent it with the same key k */
-        ( Ex idA #j.
-          ASendsMessage(idA, k) @j & j < i
-          /* and there is no other message sent to idB with key k (injective) */
-          & not
-            ( Ex #i2.
-                BReceivesMessage(idB, k) @i2 & not( #i = #i2 )
-            )
+        ( 
+            ∃ idA #j.
+            ASendsMessage(idA, k) @j ∧ j < i
+            /* and there is no other message sent to idB with key k (injective) */
+            ∧ 
+            ¬(Ex #i2. BReceivesMessage(idB, k) @i2 ∧ ¬( #i = #i2 ))
         )
     "
 
 lemma secret_message:
     "
     /* Whenever two agents believe that a message is secret */
-    All idA idB m #i #j.
+    ∀ idA idB m #i #j.
     ASecret(idA, m) @i
-    & BSecret(idB, m) @j
+    ∧ BSecret(idB, m) @j
     ==>
     /* the attacker does indeed not know it */
-    not(Ex #r. K(m) @r)
+    ¬(∃ #r. K(m) @r)
     "
 
 lemma executable:
     exists-trace
     "
-        Ex idB idA k #i #j.
+        ∃ idB idA k #i #j.
         AInstallsKey(idA, k) @i
-        & BInstallsKey(idB, k) @j
+        ∧ BInstallsKey(idB, k) @j
     "
 
 end
