@@ -7,36 +7,25 @@ builtins: diffie-hellman, symmetric-encryption
 /* Protocol */
 /************/
 
-rule Init:
-    [ Fr(~idA)                                  // A id
-    , Fr(~idB)                                  // B id
-    ]
-    -->
-    [ AState(~idA, 'INIT', 'EMPTY_STATE')       // Create initial state for A
-    , BState(~idB, 'INIT', 'EMPTY_STATE')       // Create initial state for B
-    ]
-
 rule A_1:
-    [ AState(~idA, 'INIT', 'EMPTY_STATE')       // Recover state
-    , Fr(~a) ]                                  // Generate secret parameter    
-    --[ ASendsHalfKey(~idA, ~a) ]->             
+    [ Fr(~a) ]                                  // Generate secret parameter    
+    --[ ASendsHalfKey($idA, ~a) ]->             
     [ Out('g'^~a)                               // Send out half key
-    , AState(~idA, 'SENT', ~a)                  // Save state
+    , AState($idA, 'SENT', ~a)                    // Save state
     ]
 
 rule B_1:
     let 
         k = g_a ^ ~b                            // Symmetric encryption key (g^b^a = g^(ba))
     in
-    [ BState(~idB, 'INIT', 'EMPTY_STATE')       // Recover state
-    , In(g_a)                                   // Receive P's half key
+    [ In(g_a)                                   // Receive P's half key
     , Fr(~b)                                    // Generate secret parameter
     ]
-  --[ BSendsHalfKey(~idB, ~b)
-    , BInstallsKey(~idB, k)                     // MAYBE: add g_a and g_b to this action fact
+  --[ BSendsHalfKey($idB, ~b)
+    , BInstallsKey($idB, k)                     // MAYBE: add g_a and g_b to this action fact
     ]->
     [ Out('g'^~b)                               // Send out half key
-    , BState(~idB, 'INSTALLED', <~b, g_a, k>)   // Save state
+    , BState($idB, 'INSTALLED', <~b, g_a, k>)   // Save state
     ]
 
 rule A_2:
@@ -44,16 +33,16 @@ rule A_2:
         k = g_b ^ ~a            // Symmetric encryption key (g^a^b = g^(ab))
         c = senc(~m, k)         // Encrypted message
     in
-    [ AState(~idA, 'SENT', ~a)  // Recover state
+    [ AState($idA, 'SENT', ~a)  // Recover state
     , In(g_b)                   // Receive Q's half key
     , Fr(~m)                    // Generate fresh message m (intended to be secret)
     ]
-  --[ AInstallsKey(~idA, k)
-    , ASendsMessage(~idA, k)
-    , ASecret(~idA, ~m)
+  --[ AInstallsKey($idA, k)
+    , ASendsMessage($idA, k)
+    , ASecret($idA, ~m)
     ]->
     [ Out(c)
-    , AState(~idA, 'INSTALLED', <~a, g_b, k>)
+    , AState($idA, 'INSTALLED', <~a, g_b, k>)
     ]
 
 rule B_2:
@@ -61,11 +50,11 @@ rule B_2:
          
         c = senc(m, k)                          // Encrypted message
     in
-    [ BState(~idB, 'INSTALLED', <~b, g_a, k>)   // Recover state
+    [ BState($idB, 'INSTALLED', <~b, g_a, k>)   // Recover state
     , In(c)                                     // Receive encrypted message
     ]
-  --[ BReceivesMessage(~idB, k)                       
-    , BSecret(~idB, m)                            
+  --[ BReceivesMessage($idB, k)                       
+    , BSecret($idB, m)                            
     ]-> 
     [] 
 
