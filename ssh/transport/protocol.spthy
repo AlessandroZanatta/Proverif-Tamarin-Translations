@@ -14,61 +14,57 @@ functions: mac/2
 /*******************/
 
 rule Out_C_to_S:
-    [ Out_to_S(idC, x) ]
-    --[ Out_C_to_S(idC, x) ]->
-    [ !Secure_from_C(idC,x) ]
+    [ Out_to_S($C, sid, x) ]
+    --[ Out_C_to_S($C, sid, x) ]->
+    [ !Secure_from_C($C, sid, x) ]
 
 rule In_C_to_S:
-    [ !Secure_from_C(idC, x) ]
-    --[ In_C_to_S(idC, x) ]->
-    [ In_from_C(idC, x) ]
+    [ !Secure_from_C($C, sid, x) ]
+    --[ In_C_to_S($C, sid, x) ]->
+    [ In_from_C($C, sid, x) ]
 
 rule Out_S_to_C:
-    [ Out_to_C(idS, x) ]
-    --[ Out_S_to_C(idS, x) ]->
-    [ !Secure_from_S(idS,x) ]
+    [ Out_to_C($S, sid, x) ]
+    --[ Out_S_to_C($S, sid, x) ]->
+    [ !Secure_from_S($S, sid, x) ]
 
 rule In_S_to_C:
-    [ !Secure_from_S(idS, x) ]
-    --[ In_S_to_C(idS, x) ]->
-    [ In_from_S(idS, x) ]
+    [ !Secure_from_S($S, sid, x) ]
+    --[ In_S_to_C($S, sid, x) ]->
+    [ In_from_S($S, sid, x) ]
+
+/*******/
+/* PKI */
+/*******/
+
+rule RegisterSigningPublicKey:
+    [ Fr(~sign_key) ]
+  -->
+    [ !Ltsk($X, ~sign_key), !Psk($X, pk(~sign_key)), Out(pk(~sign_key)) ]
 
 /************/
 /* Protocol */
 /************/
 
 // NOTICE: as this is a simplified version, it is assumed that we 
-// are using an authenticated DH exchange, symmetric encryption, mac algorithm and no compression
-
-rule Init:
-    [ Fr(~S_sign_key)                           // Sign key of the server
-    , Fr(~idS)                                  // Id of the server
-    , Fr(~idC)                                  // Id of the client
-    ]
-    -->
-    [ CState(~idC, 'INIT', <pk(~S_sign_key)>)
-    , SState(~idS, 'INIT', <~S_sign_key>)
-    , Out(pk(~S_sign_key))                      // Make sure the sign verification key of the server is public
-    ]
+// are using an authenticated DH exchange, symmetric encryption,
+// mac algorithm and no compression
 
 rule C_1:
     let
         pubC = 'g'^~secretC                                     // Public DH half-key
     in
-    [ CState(~idC, 'INIT', <S_pubkey>) 
-    , Fr(~secretC)                                              // Generate fresh secret DH parameter
-    ]
-    --[ CSentDHParam(~idC, pubC) ]->
+    [ Fr(~secretC) ]                                            // Generate fresh DH parameter
+    --[ CSentDHParam($C, pubC) ]->
     [ Out(<'KEXDHINIT', pubC>)                                  // Send request to server 
-    , CState(~idC, 'SENT_DH_PARAM', <S_pubkey, ~secretC>)
+    , CState($C, 'SENT_DH_PARAM', <~secretC>)
     ]
 
 rule S_1:
     let 
-        S_pubkey = pk(~S_sign_key)
         pubS = 'g'^~secretS
         key = pubC^~secretS
-        hashed = h(<S_pubkey, pubC, pubS, key>)
+        hashed = h(<verification_key, pubC, pubS, key>)
         
         // Derive secrets from master key
         enc_key_C_to_S = h(<key, hashed, 'enc_key_C_to_S'>)
@@ -77,47 +73,54 @@ rule S_1:
         mac_key_S_to_C = h(<key, hashed, 'mac_key_S_to_C'>)
         derived_keys = <enc_key_C_to_S, enc_key_S_to_C, mac_key_C_to_S, mac_key_S_to_C>
     in
-    [ SState(~idS, 'INIT', <~S_sign_key>)
+    [ !Ltsk($S, sign_key)
+    , !Psk($S, verification_key)
     , In(<'KEXDHINIT', pubC>)
     , Fr(~secretS)
     ]
-  --[ SSentDHParam(~idS, pubS)
-    , SInstallsKey(~idS, key)
+  --[ SSentDHParam($S, pubS)
+    , SInstallsKey($S, key)
     ]->
-    [ Out(<'KEXDHREPLY', S_pubkey, pubS, sign(hashed, ~S_sign_key)>)
-    , !SFinalState(~idS, 'KEY_INSTALLED', <~S_sign_key, ~secretS, key, derived_keys>)
+    [ Out(<'KEXDHREPLY', verification_key, pubS, sign(hashed, sign_key)>)
+    , !SFinalState($S, 'KEY_INSTALLED', <~secretS, key, derived_keys>)
     ]
 
 rule C_2:
     let 
         pubC = 'g'^~secretC
         key = pubS^~secretC
-        hashed = h(<S_pubkey, pubC, pubS, key>)
+        hashed = h(<verification_key, pubC, pubS, key>)
         enc_key_C_to_S = h(<key, hashed, 'enc_key_C_to_S'>)
         enc_key_S_to_C = h(<key, hashed, 'enc_key_S_to_C'>)
         mac_key_C_to_S = h(<key, hashed, 'mac_key_C_to_S'>)
         mac_key_S_to_C = h(<key, hashed, 'mac_key_S_to_C'>)
         derived_keys = <enc_key_C_to_S, enc_key_S_to_C, mac_key_C_to_S, mac_key_S_to_C>
     in
-    [ CState(~idC, 'SENT_DH_PARAM', <S_pubkey, ~secretC>)
-    , In(<'KEXDHREPLY', S_pubkey, pubS, signature>)
+    [ !Psk($S, verification_key)
+    , CState($C, 'SENT_DH_PARAM', <~secretC>)
+    , In(<'KEXDHREPLY', verification_key, pubS, signature>)
     , Fr(~client_secret)
     ]
-  --[ Equal(verify(signature, hashed, S_pubkey), true)
-    , CInstallsKey(~idC, key)
-    , CSendsClientSecretToServer(~idC, ~client_secret)
+  --[ Equal(verify(signature, hashed, verification_key), true)
+    , CInstallsKey($C, key)
+    , CSendsClientSecretToServer($C, ~client_secret)
     ]->
-    [ Out_to_S(~idC, ~client_secret)
-    , !CFinalState(~idC, 'KEY_INSTALLED', <S_pubkey, ~secretC, key, derived_keys>)
+    [ Out_to_S($C, key, ~client_secret)
+    , !CFinalState($C, 'KEY_INSTALLED', <~secretC, key, derived_keys>)
     ] 
 
-/*
+   /*
+    * Note that `key` was added in the In/Out_from_C/S rules
+    * to identify the session correctly. This would otherwise 
+    * lead to an false attack that used session mismatch.
+    */
+
 rule S_3_1:
     let
         derived_keys = <enc_key_C_to_S, enc_key_S_to_C, mac_key_C_to_S, mac_key_S_to_C>
     in
-    [ !SFinalState(~idS, 'KEY_INSTALLED', <~S_sign_key, ~secretS, key, derived_keys>)
-    , In_from_C(idC, m3payload)
+    [ !SFinalState($S, 'KEY_INSTALLED', <~secretS, key, derived_keys>)
+    , In_from_C($C, key, m3payload)
     ]
     --[]->
     [ Out(<senc(m3payload, enc_key_S_to_C), mac(m3payload, mac_key_S_to_C)>) ]
@@ -126,18 +129,18 @@ rule S_3_2:
     let
         derived_keys = <enc_key_C_to_S, enc_key_S_to_C, mac_key_C_to_S, mac_key_S_to_C>
     in
-    [ !SFinalState(~idS, 'KEY_INSTALLED', <~S_sign_key, ~secretS, key, derived_keys>)
+    [ !SFinalState($S, 'KEY_INSTALLED', <~S_sign_key, ~secretS, key, derived_keys>)
     , In(<senc(m2payload, enc_key_C_to_S), mac(m2payload, mac_key_C_to_S)>)
     ]
     --[]->
-    [ Out_to_C(~idS, m2payload) ]
+    [ Out_to_C($S, key, m2payload) ]
 
 rule C_3_1:
     let
         derived_keys = <enc_key_C_to_S, enc_key_S_to_C, mac_key_C_to_S, mac_key_S_to_C>
     in
-    [ !CFinalState(~idC, 'KEY_INSTALLED', <S_pubkey, ~secretC, key, derived_keys>)
-    , In_from_S(idS, m2payload)
+    [ !CFinalState($C, 'KEY_INSTALLED', <S_pubkey, ~secretC, key, derived_keys>)
+    , In_from_S($S, key, m2payload)
     ]
     --[]->
     [ Out(<senc(m2payload, enc_key_C_to_S), mac(m2payload, mac_key_C_to_S)>) ]
@@ -146,12 +149,11 @@ rule C_3_2:
     let
         derived_keys = <enc_key_C_to_S, enc_key_S_to_C, mac_key_C_to_S, mac_key_S_to_C>
     in
-    [ !CFinalState(~idC, 'KEY_INSTALLED', <S_pubkey, ~secretC, key, derived_keys>)
+    [ !CFinalState($C, 'KEY_INSTALLED', <S_pubkey, ~secretC, key, derived_keys>)
     , In(<senc(m4payload, enc_key_S_to_C), mac(m4payload, mac_key_S_to_C)>)
     ]
     --[]->
-    [ Out_to_S(~idC, m4payload) ]
-*/
+    [ Out_to_S($C, key, m4payload) ]
 
 restriction Equal:
     "
@@ -162,25 +164,22 @@ restriction Equal:
 /* Security lemmas */
 /*******************/
 
-// Does NOT terminate (may also be incorrect)
+// Finds an attack because of a 
 lemma secret:
     "
-    All idC secret #i.
+    ∀ idC secret #i.
     CSendsClientSecretToServer(idC, secret) @i
     ==>
-    not(
-      Ex #k. K(secret) @k
+    ¬(
+      ∃ #k. K(secret) @k
     )
     "
 
-// Does NOT terminate (may also be incorrect)
 lemma executable:
     exists-trace
     "
-    Ex idS idC key secret #i #j #s.
-    SInstallsKey(idS, key) @i
-    & CInstallsKey(idC, key) @j
-    & CSendsClientSecretToServer(idC, secret) @s
+    ∃ idC secret #s.
+    CSendsClientSecretToServer(idC, secret) @s
     "
 
 end
